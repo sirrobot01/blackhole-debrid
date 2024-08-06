@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/anacrolix/torrent/metainfo"
+	"goBlack/common"
 	"goBlack/pkg"
 	"log"
 	"net/url"
@@ -16,7 +17,7 @@ type Service interface {
 	SubmitMagnet(torrent *pkg.Torrent) (*pkg.Torrent, error)
 	CheckStatus(torrent *pkg.Torrent) (*pkg.Torrent, error)
 	DownloadLink(torrent *pkg.Torrent) error
-	Process(magnet string) (*pkg.Torrent, error)
+	Process(arr *pkg.Arr, magnet string) (*pkg.Torrent, error)
 	IsAvailable(torrent *pkg.Torrent) bool
 }
 
@@ -26,12 +27,12 @@ type Debrid struct {
 	DownloadUncached bool
 }
 
-func NewDebrid(name, host, apiKey string, downloadUncached bool) Service {
-	switch name {
+func NewDebrid(dc common.DebridConfig) Service {
+	switch dc.Name {
 	case "realdebrid":
-		return NewRealDebrid(host, apiKey, downloadUncached)
+		return NewRealDebrid(dc)
 	default:
-		return NewRealDebrid(host, apiKey, downloadUncached)
+		return NewRealDebrid(dc)
 	}
 }
 

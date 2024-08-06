@@ -1,4 +1,4 @@
-package runner
+package cmd
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ func fileReady(path string) bool {
 
 func checkFileLoop(wg *sync.WaitGroup, dir string, file pkg.File, ready chan<- pkg.File) {
 	defer wg.Done()
-	ticker := time.NewTicker(2 * time.Second) // Check every 2 seconds
+	ticker := time.NewTicker(1 * time.Second) // Check every second
 	defer ticker.Stop()
 	path := filepath.Join(dir, file.Path)
 	for {
@@ -34,7 +34,7 @@ func checkFileLoop(wg *sync.WaitGroup, dir string, file pkg.File, ready chan<- p
 	}
 }
 
-func ProcessFiles(config *common.TorrentConfig, torrent *pkg.Torrent) {
+func ProcessFiles(arr *pkg.Arr, torrent *pkg.Torrent) {
 	var wg sync.WaitGroup
 	files := torrent.Files
 	ready := make(chan pkg.File, len(files))
@@ -43,7 +43,7 @@ func ProcessFiles(config *common.TorrentConfig, torrent *pkg.Torrent) {
 
 	for _, file := range files {
 		wg.Add(1)
-		go checkFileLoop(&wg, config.Debrid.Folder, file, ready)
+		go checkFileLoop(&wg, arr.Debrid.Folder, file, ready)
 	}
 
 	go func() {
@@ -53,14 +53,14 @@ func ProcessFiles(config *common.TorrentConfig, torrent *pkg.Torrent) {
 
 	for r := range ready {
 		log.Println("File is ready:", r.Name)
-		CreateSymLink(config, torrent)
+		CreateSymLink(arr, torrent)
 
 	}
-	go torrent.Cleanup(config, true)
-	fmt.Printf("%s downloaded\nFiles Count: %d", torrent.Name, len(torrent.Files))
+	go torrent.Cleanup(true)
+	fmt.Printf("%s downloaded", torrent.Name)
 }
 
-func CreateSymLink(config *common.TorrentConfig, torrent *pkg.Torrent) {
+func CreateSymLink(config *pkg.Arr, torrent *pkg.Torrent) {
 	path := filepath.Join(config.CompletedFolder, torrent.Folder)
 	err := os.MkdirAll(path, os.ModePerm)
 	if err != nil {
@@ -97,7 +97,7 @@ func watchFiles(watcher *fsnotify.Watcher, events map[string]time.Time) {
 	}
 }
 
-func processFilesDebounced(config *common.TorrentConfig, db debrid.Service, events map[string]time.Time, debouncePeriod time.Duration) {
+func processFilesDebounced(arr *pkg.Arr, db debrid.Service, events map[string]time.Time, debouncePeriod time.Duration) {
 	ticker := time.NewTicker(1 * time.Second) // Check every second
 	defer ticker.Stop()
 
@@ -106,16 +106,17 @@ func processFilesDebounced(config *common.TorrentConfig, db debrid.Service, even
 			if time.Since(lastEventTime) >= debouncePeriod {
 				log.Printf("Torrent file detected: %s", file)
 				// Process the torrent file
-				torrent, err := db.Process(file)
+				torrent, err := db.Process(arr, file)
 				if err != nil || torrent == nil {
 					if torrent != nil {
 						// remove torrent file
-						torrent.Cleanup(config, true)
+						torrent.Cleanup(true)
+						_ = torrent.MarkAsFailed()
 					}
 					log.Printf("Error processing torrent file: %s", err)
 				}
 				if err == nil && torrent != nil && len(torrent.Files) > 0 {
-					go ProcessFiles(config, torrent)
+					go ProcessFiles(arr, torrent)
 				}
 				delete(events, file) // remove file from channel
 
@@ -124,7 +125,7 @@ func processFilesDebounced(config *common.TorrentConfig, db debrid.Service, even
 	}
 }
 
-func RunArr(conf *common.TorrentConfig, db debrid.Service) {
+func StartArr(conf *pkg.Arr, db debrid.Service) {
 	log.Printf("Watching: %s", conf.WatchFolder)
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -147,21 +148,34 @@ func RunArr(conf *common.TorrentConfig, db debrid.Service) {
 	processFilesDebounced(conf, db, events, 1*time.Second)
 }
 
-func Run(config *common.Config) {
-	log.Print("[*] BlackHole running")
+func StartArrs(config *common.Config, deb debrid.Service) {
 	var wg sync.WaitGroup
-	debridConf := config.Debrid
-	db := debrid.NewDebrid(debridConf.Name, debridConf.Host, debridConf.APIKey, debridConf.DownloadUncached)
-	for _, arr := range config.Arrs {
+	for _, conf := range config.Arrs {
 		wg.Add(1)
 		defer wg.Done()
-		conf := &common.TorrentConfig{
-			Debrid:          config.Debrid,
-			WatchFolder:     arr.WatchFolder,
-			CompletedFolder: arr.CompletedFolder,
+		headers := map[string]string{
+			"X-Api-Key": conf.Token,
 		}
-		go RunArr(conf, db)
+		client := common.NewRLHTTPClient(nil, headers)
+
+		arr := &pkg.Arr{
+			Debrid:          config.Debrid,
+			WatchFolder:     conf.WatchFolder,
+			CompletedFolder: conf.CompletedFolder,
+			Token:           conf.Token,
+			URL:             conf.URL,
+			Client:          client,
+		}
+		go StartArr(arr, deb)
 	}
 	wg.Wait()
+}
+
+func Start(config *common.Config) {
+	log.Print("[*] BlackHole running")
+	common.InitDB("blackhole.db")
+	defer common.CloseDB()
+	deb := debrid.NewDebrid(config.Debrid)
+	StartArrs(config, deb)
 
 }

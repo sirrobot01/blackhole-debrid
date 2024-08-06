@@ -2,8 +2,8 @@ package main
 
 import (
 	"flag"
+	"goBlack/cmd"
 	"goBlack/common"
-	"goBlack/pkg/runner"
 	"log"
 )
 
@@ -17,6 +17,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	runner.Run(conf)
+	cmd.Start(conf)
 
 }

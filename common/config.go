@@ -12,6 +12,7 @@ type DebridConfig struct {
 	APIKey           string `json:"api_key"`
 	Folder           string `json:"folder"`
 	DownloadUncached bool   `json:"download_uncached"`
+	RateLimit        string `json:"rate_limit"` // 200/minute or 10/second
 }
 
 type Config struct {
@@ -19,13 +20,9 @@ type Config struct {
 	Arrs   []struct {
 		WatchFolder     string `json:"watch_folder"`
 		CompletedFolder string `json:"completed_folder"`
+		Token           string `json:"token"`
+		URL             string `json:"url"`
 	} `json:"arrs"`
-}
-
-type TorrentConfig struct {
-	WatchFolder     string       `json:"watch_folder"`
-	CompletedFolder string       `json:"completed_folder"`
-	Debrid          DebridConfig `json:"debrid"`
 }
 
 func LoadConfig(path string) (*Config, error) {
